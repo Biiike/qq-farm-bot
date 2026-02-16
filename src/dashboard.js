@@ -683,6 +683,7 @@ function dashboardHtml() {
     let failedCount = 0;
     let lastErrorAt = '';
     let lastCalcResult = null;
+    let intervalInputsDirty = false;
 
     function withToken(path) {
       if (!token) return path;
@@ -782,8 +783,10 @@ function dashboardHtml() {
       const farmSec = Number(settings.farmIntervalSec || 1);
       const friendSec = Number(settings.friendIntervalSec || 10);
       document.getElementById('currentIntervals').textContent = '农场' + farmSec + 's / 好友' + friendSec + 's';
-      document.getElementById('farmIntervalSec').value = String(farmSec);
-      document.getElementById('friendIntervalSec').value = String(friendSec);
+      if (!intervalInputsDirty) {
+        document.getElementById('farmIntervalSec').value = String(farmSec);
+        document.getElementById('friendIntervalSec').value = String(friendSec);
+      }
 
       document.getElementById('uptime').textContent = fmtUptime(up);
       document.getElementById('startedAt').textContent = start.toLocaleString('zh-CN', { hour12: false });
@@ -851,6 +854,7 @@ function dashboardHtml() {
         farmIntervalSec,
         friendIntervalSec,
       });
+      intervalInputsDirty = false;
       await tick();
     }
 
@@ -885,6 +889,12 @@ function dashboardHtml() {
     });
     document.getElementById('btnApplyIntervals').addEventListener('click', () => {
       applyIntervals().catch(() => {});
+    });
+    document.getElementById('farmIntervalSec').addEventListener('input', () => {
+      intervalInputsDirty = true;
+    });
+    document.getElementById('friendIntervalSec').addEventListener('input', () => {
+      intervalInputsDirty = true;
     });
     document.getElementById('calcFullLink').href = withToken('/calc/');
 
