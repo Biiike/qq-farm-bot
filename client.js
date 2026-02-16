@@ -24,6 +24,7 @@ const { verifyMode, decodeMode } = require('./src/decode');
 const { emitRuntimeHint, sleep } = require('./src/utils');
 const { getQQFarmCodeByScan } = require('./src/qqQrLogin');
 const { initFileLogger } = require('./src/logger');
+const { startDashboardServer, stopDashboardServer, updateStatus: updateDashboardStatus } = require('./src/dashboard');
 
 initFileLogger();
 
@@ -36,6 +37,7 @@ QQ经典农场 挂机脚本
 用法:
   node client.js --code <登录code> [--wx] [--interval <秒>] [--friend-interval <秒>]
   node client.js --qr [--interval <秒>] [--friend-interval <秒>]
+  node client.js --dashboard [--dashboard-port <端口>] --code <登录code>
   node client.js --verify
   node client.js --decode <数据> [--hex] [--gate] [--type <消息类型>]
 
@@ -45,6 +47,8 @@ QQ经典农场 挂机脚本
   --wx                使用微信登录 (默认为QQ小程序)
   --interval          自己农场巡查完成后等待秒数, 默认10秒, 最低10秒
   --friend-interval   好友巡查完成后等待秒数, 默认1秒, 最低1秒
+  --dashboard         启用网页运行面板
+  --dashboard-port    网页面板端口 (默认读取 PORT, 否则 3000)
   --verify            验证proto定义
   --decode            解码PB数据 (运行 --decode 无参数查看详细帮助)
 
@@ -69,6 +73,8 @@ function parseArgs(args) {
     const options = {
         code: '',
         qrLogin: false,
+        dashboard: false,
+        dashboardPort: 0,
         deleteAccountMode: false,
         name: '',
         certId: '',
@@ -84,6 +90,12 @@ function parseArgs(args) {
         }
         if (args[i] === '--wx') {
             CONFIG.platform = 'wx';
+        }
+        if (args[i] === '--dashboard') {
+            options.dashboard = true;
+        }
+        if (args[i] === '--dashboard-port' && args[i + 1]) {
+            options.dashboardPort = parseInt(args[++i]);
         }
         if (args[i] === '--interval' && args[i + 1]) {
             const sec = parseInt(args[++i]);
@@ -119,6 +131,14 @@ async function main() {
 
     // 正常挂机模式
     const options = parseArgs(args);
+    const envDashboard = process.env.DASHBOARD === '1' || process.env.DASHBOARD === 'true' || process.env.ENABLE_DASHBOARD === '1' || process.env.ENABLE_DASHBOARD === 'true';
+    const autoDashboardByPort = Number(process.env.PORT) > 0;
+
+    if (options.dashboard || envDashboard || autoDashboardByPort) {
+        const port = Number(options.dashboardPort) || Number(process.env.PORT) || 3000;
+        startDashboardServer({ port });
+        updateDashboardStatus({ platform: CONFIG.platform });
+    }
 
     // QQ 平台支持扫码登录: 显式 --qr，或未传 --code 时自动触发
     if (!options.code && CONFIG.platform === 'qq' && (options.qrLogin || !args.includes('--code'))) {
@@ -176,6 +196,7 @@ async function main() {
         stopFriendCheckLoop();
         cleanupTaskSystem();
         stopSellLoop();
+        stopDashboardServer();
         cleanup();
         const ws = getWs();
         if (ws) ws.close();

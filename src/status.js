@@ -3,6 +3,7 @@
  */
 
 const { getLevelExpTable, getLevelExpProgress } = require('./gameConfig');
+const { updateStatus: updateDashboardStatus } = require('./dashboard');
 
 // ============ 状态数据 ============
 const statusData = {
@@ -141,8 +142,11 @@ function updateStatus(data) {
             changed = true;
         }
     }
-    if (changed && statusEnabled) {
-        renderStatusBar();
+    if (changed) {
+        updateDashboardStatus(statusData);
+        if (statusEnabled) {
+            renderStatusBar();
+        }
     }
 }
 

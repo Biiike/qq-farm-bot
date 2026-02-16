@@ -9,6 +9,7 @@ const { sendMsgAsync, getUserState, networkEvents } = require('./network');
 const { toLong, toNum, getServerTimeSec, toTimeSec, log, logWarn, sleep } = require('./utils');
 const { getPlantNameBySeedId, getPlantName, getPlantExp, formatGrowTime, getPlantGrowTime, getItemName } = require('./gameConfig');
 const { getPlantingRecommendation } = require('../tools/calc-exp-yield');
+const { getStrategyConfig, recordStrategyDecision } = require('./dashboard');
 
 // ============ 内部状态 ============
 let isCheckingFarm = false;
@@ -209,29 +210,85 @@ async function findBestSeed(landsCount) {
         return null;
     }
 
+    const strategy = typeof getStrategyConfig === 'function' ? getStrategyConfig() : { mode: 'normalFert', source: 'auto' };
+    if (strategy.manualSeedId > 0) {
+        const manualHit = available.find(x => x.seedId === strategy.manualSeedId);
+        if (manualHit) {
+            if (typeof recordStrategyDecision === 'function') {
+                recordStrategyDecision({
+                    source: 'manual',
+                    mode: strategy.mode || 'normalFert',
+                    seedId: manualHit.seedId,
+                    seedName: getPlantNameBySeedId(manualHit.seedId),
+                    lands: landsCount,
+                    level: state.level,
+                });
+            }
+            return manualHit;
+        }
+        logWarn('策略', `手动指定种子#${strategy.manualSeedId} 当前不可购买，回退自动策略`);
+    }
+
     if (CONFIG.forceLowestLevelCrop) {
         available.sort((a, b) => a.requiredLevel - b.requiredLevel || a.price - b.price);
+        if (typeof recordStrategyDecision === 'function') {
+            const selected = available[0];
+            recordStrategyDecision({
+                source: 'config',
+                mode: 'lowestLevel',
+                seedId: selected.seedId,
+                seedName: getPlantNameBySeedId(selected.seedId),
+                lands: landsCount,
+                level: state.level,
+            });
+        }
         return available[0];
     }
 
     try {
         log('商店', `等级: ${state.level}，土地数量: ${landsCount}`);
-        
+        const mode = strategy.mode === 'noFert' ? 'noFert' : 'normalFert';
         const rec = getPlantingRecommendation(state.level, landsCount == null ? 18 : landsCount, { top: 50 });
-        const rankedSeedIds = rec.candidatesNormalFert.map(x => x.seedId);
+        const candidates = mode === 'noFert' ? rec.candidatesNoFert : rec.candidatesNormalFert;
+        const rankedSeedIds = candidates.map(x => x.seedId);
         for (const seedId of rankedSeedIds) {
             const hit = available.find(x => x.seedId === seedId);
-            if (hit) return hit;
+            if (hit) {
+                const candidate = candidates.find(x => x.seedId === hit.seedId) || null;
+                if (typeof recordStrategyDecision === 'function') {
+                    recordStrategyDecision({
+                        source: 'auto',
+                        mode,
+                        seedId: hit.seedId,
+                        seedName: getPlantNameBySeedId(hit.seedId),
+                        lands: landsCount,
+                        level: state.level,
+                        expPerHour: candidate ? candidate.expPerHour : 0,
+                    });
+                }
+                return hit;
+            }
         }
     } catch (e) {
         logWarn('商店', `经验效率推荐失败，使用兜底策略: ${e.message}`);
     }
 
     // 兜底：等级在28级以前还是白萝卜比较好，28级以上选最高等级的种子
-    if(state.level && state.level <= 28){
+    if (state.level && state.level <= 28) {
         available.sort((a, b) => a.requiredLevel - b.requiredLevel);
-    }else{
+    } else {
         available.sort((a, b) => b.requiredLevel - a.requiredLevel);
+    }
+    if (typeof recordStrategyDecision === 'function') {
+        const selected = available[0];
+        recordStrategyDecision({
+            source: 'fallback',
+            mode: 'fallback',
+            seedId: selected.seedId,
+            seedName: getPlantNameBySeedId(selected.seedId),
+            lands: landsCount,
+            level: state.level,
+        });
     }
     return available[0];
 }

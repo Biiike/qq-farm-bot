@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const util = require('util');
+const { addLog } = require('./dashboard');
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
 
@@ -51,10 +52,11 @@ function ensureStream() {
 
 function appendLine(level, args) {
     ensureStream();
-    if (!stream || disabled) return;
-
     const now = new Date();
     const message = util.formatWithOptions({ colors: false, depth: null }, ...args);
+    addLog(level, message);
+
+    if (!stream || disabled) return;
     const line = `[${getDateTime(now)}] [${level}] ${message}\n`;
     stream.write(line);
 }
