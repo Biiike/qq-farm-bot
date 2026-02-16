@@ -9,6 +9,10 @@ const util = require('util');
 const { addLog } = require('./dashboard');
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
+const LEVEL_MAP = { info: 10, warn: 20, error: 30 };
+const LOG_LEVEL_NAME = String(process.env.LOG_LEVEL || 'info').toLowerCase();
+const LOG_LEVEL = LEVEL_MAP[LOG_LEVEL_NAME] || LEVEL_MAP.info;
+const FILE_LOG_ENABLED = !['0', 'false', 'off'].includes(String(process.env.LOG_TO_FILE || '').toLowerCase());
 
 let initialized = false;
 let currentDateKey = '';
@@ -28,6 +32,7 @@ function getDateTime(d) {
 }
 
 function ensureStream() {
+    if (!FILE_LOG_ENABLED) return;
     if (disabled) return;
 
     const now = new Date();
@@ -51,6 +56,9 @@ function ensureStream() {
 }
 
 function appendLine(level, args) {
+    const levelNum = LEVEL_MAP[String(level || '').toLowerCase()] || LEVEL_MAP.info;
+    if (levelNum < LOG_LEVEL) return;
+
     ensureStream();
     const now = new Date();
     const message = util.formatWithOptions({ colors: false, depth: null }, ...args);
@@ -70,17 +78,17 @@ function initFileLogger() {
     const rawError = console.error.bind(console);
 
     console.log = (...args) => {
-        rawLog(...args);
+        if (LOG_LEVEL <= LEVEL_MAP.info) rawLog(...args);
         appendLine('INFO', args);
     };
 
     console.warn = (...args) => {
-        rawWarn(...args);
+        if (LOG_LEVEL <= LEVEL_MAP.warn) rawWarn(...args);
         appendLine('WARN', args);
     };
 
     console.error = (...args) => {
-        rawError(...args);
+        if (LOG_LEVEL <= LEVEL_MAP.error) rawError(...args);
         appendLine('ERROR', args);
     };
 

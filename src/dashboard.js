@@ -9,7 +9,7 @@ const path = require('path');
 const { getLevelExpProgress } = require('./gameConfig');
 const { getPlantingRecommendation } = require('../tools/calc-exp-yield');
 
-const MAX_LOGS = 500;
+const MAX_LOGS = Math.max(0, Number(process.env.DASHBOARD_MAX_LOGS || 120));
 const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || '';
 const RATE_MIN_WINDOW_SEC = 120;
 const FARM_CALC_ROOT = path.join(process.cwd(), 'FarmCalc');
@@ -62,6 +62,7 @@ function nowIso() {
 }
 
 function addLog(level, message) {
+    if (MAX_LOGS <= 0) return;
     const item = {
         id: state.nextLogId++,
         ts: nowIso(),
