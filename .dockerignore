@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log*
+yarn-error.log*
+logs
+.git
+.gitignore
+.dockerignore
+*.local
+*.tmp
+*.swp
