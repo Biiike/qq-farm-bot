@@ -19,9 +19,14 @@ function buildArgs() {
 
     const platform = String(process.env.PLATFORM || 'qq').toLowerCase();
     const isWx = platform === 'wx' || toBool(String(process.env.WX || ''));
+    const qrLogin = toBool(String(process.env.QR_LOGIN || ''));
 
     if (isWx) {
         args.push('--wx');
+    }
+
+    if (qrLogin && !isWx) {
+        args.push('--qr');
     }
 
     const code = isWx

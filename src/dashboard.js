@@ -6,6 +6,7 @@ const http = require('http');
 const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
+const { CONFIG } = require('./config');
 const { getLevelExpProgress } = require('./gameConfig');
 const { getPlantingRecommendation } = require('../tools/calc-exp-yield');
 
@@ -230,6 +231,38 @@ function readJsonBody(req) {
         });
         req.on('error', reject);
     });
+}
+
+function getRuntimeSettings() {
+    return {
+        farmIntervalSec: Math.max(1, Math.round(Number(CONFIG.farmCheckInterval || 1000) / 1000)),
+        friendIntervalSec: Math.max(1, Math.round(Number(CONFIG.friendCheckInterval || 1000) / 1000)),
+    };
+}
+
+function updateRuntimeSettings(patch) {
+    const current = getRuntimeSettings();
+    const next = { ...current };
+
+    if (patch && patch.farmIntervalSec !== undefined) {
+        const farm = Number(patch.farmIntervalSec);
+        if (!Number.isFinite(farm) || farm <= 0) {
+            throw new Error('invalid_farm_interval');
+        }
+        next.farmIntervalSec = Math.max(1, Math.floor(farm));
+    }
+
+    if (patch && patch.friendIntervalSec !== undefined) {
+        const friend = Number(patch.friendIntervalSec);
+        if (!Number.isFinite(friend) || friend <= 0) {
+            throw new Error('invalid_friend_interval');
+        }
+        next.friendIntervalSec = Math.max(1, Math.floor(friend));
+    }
+
+    CONFIG.farmCheckInterval = next.farmIntervalSec * 1000;
+    CONFIG.friendCheckInterval = next.friendIntervalSec * 1000;
+    return next;
 }
 
 function getLogsSince(sinceId) {
@@ -478,7 +511,7 @@ function dashboardHtml() {
     .btn.ghost { background: linear-gradient(135deg, #74406f, #8f4d86); }
     .calc-summary {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 8px;
     }
@@ -615,9 +648,24 @@ function dashboardHtml() {
           <button id="btnClearManual" class="btn ghost">切回自动</button>
           <a id="calcFullLink" href="/calc" target="_blank" class="btn">打开完整 FarmCalc 页面</a>
         </div>
+        <div class="calc-controls" style="margin-top:2px;">
+          <label class="field">
+            <span class="field-label">自己农场巡查间隔(秒)</span>
+            <input id="farmIntervalSec" type="number" min="1" value="1"/>
+          </label>
+          <label class="field">
+            <span class="field-label">好友农场巡查间隔(秒)</span>
+            <input id="friendIntervalSec" type="number" min="1" value="10"/>
+          </label>
+          <label class="field">
+            <span class="field-label">操作</span>
+            <button id="btnApplyIntervals" class="btn success" style="width:100%;">实时应用巡查间隔</button>
+          </label>
+        </div>
         <div class="calc-summary">
           <div class="calc-chip">当前机器人策略：<b id="strategyNow">自动</b></div>
           <div class="calc-chip">推荐Top1：<b id="calcTop1">-</b></div>
+          <div class="calc-chip">当前巡查：<b id="currentIntervals">农场1s / 好友10s</b></div>
         </div>
         <div id="calcList" class="calc-list"></div>
       </section>
@@ -696,6 +744,7 @@ function dashboardHtml() {
       const s = data.status || {};
       const m = data.metrics || {};
       const strategy = data.strategy || {};
+      const settings = data.settings || {};
       const now = new Date();
       const up = Number(data.uptimeSec || 0);
       const start = new Date(now.getTime() - up * 1000);
@@ -730,6 +779,11 @@ function dashboardHtml() {
         ? ('种子#' + strategy.manualSeedId + (strategy.manualSeedName ? ' ' + strategy.manualSeedName : ''))
         : lastSeedText;
       document.getElementById('strategyNow').textContent = sourceText + ' / ' + modeText + ' / ' + seedText;
+      const farmSec = Number(settings.farmIntervalSec || 1);
+      const friendSec = Number(settings.friendIntervalSec || 10);
+      document.getElementById('currentIntervals').textContent = '农场' + farmSec + 's / 好友' + friendSec + 's';
+      document.getElementById('farmIntervalSec').value = String(farmSec);
+      document.getElementById('friendIntervalSec').value = String(friendSec);
 
       document.getElementById('uptime').textContent = fmtUptime(up);
       document.getElementById('startedAt').textContent = start.toLocaleString('zh-CN', { hour12: false });
@@ -790,6 +844,16 @@ function dashboardHtml() {
       await tick();
     }
 
+    async function applyIntervals() {
+      const farmIntervalSec = Number(document.getElementById('farmIntervalSec').value) || 1;
+      const friendIntervalSec = Number(document.getElementById('friendIntervalSec').value) || 1;
+      await postJson('/api/settings', {
+        farmIntervalSec,
+        friendIntervalSec,
+      });
+      await tick();
+    }
+
     async function tick() {
       if (loading) return;
       loading = true;
@@ -818,6 +882,9 @@ function dashboardHtml() {
     });
     document.getElementById('btnClearManual').addEventListener('click', () => {
       clearManualStrategy().catch(() => {});
+    });
+    document.getElementById('btnApplyIntervals').addEventListener('click', () => {
+      applyIntervals().catch(() => {});
     });
     document.getElementById('calcFullLink').href = withToken('/calc/');
 
@@ -886,9 +953,28 @@ function handleRequest(req, res) {
             uptimeSec,
             metrics: buildMetrics(uptimeSec),
             strategy: getStrategyConfig(),
+            settings: getRuntimeSettings(),
             lastLogId: state.logs.length ? state.logs[state.logs.length - 1].id : 0,
             serverTime: Date.now(),
         });
+        return;
+    }
+
+    if (parsed.pathname === '/api/settings' && req.method === 'GET') {
+        sendJson(res, getRuntimeSettings());
+        return;
+    }
+
+    if (parsed.pathname === '/api/settings' && req.method === 'POST') {
+        readJsonBody(req)
+            .then(body => {
+                const settings = updateRuntimeSettings(body || {});
+                sendJson(res, settings);
+            })
+            .catch(err => {
+                const msg = err && err.message ? err.message : 'invalid_json';
+                sendJson(res, { error: msg }, 400);
+            });
         return;
     }
 
