@@ -6,7 +6,8 @@ function hasArg(args, name) {
 }
 
 function toBool(value) {
-    return value === '1' || value === 'true';
+    const v = String(value || '').trim().toLowerCase();
+    return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
 function buildArgs() {
